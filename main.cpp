@@ -1,15 +1,26 @@
 ﻿#include <iostream>
-#include <map>
 #include <vector>
+#include <queue>
 #include <string>
 #include <chrono>
 #include <fstream>
 
 struct node {
   std::vector<node*> *nextNodeVector = new std::vector<node*>;
+  node *failNode = nullptr;
   char w;
   bool hasEnd = false;
+  int wordNum = 0;
   node(char w) :w(w) {}
+
+  node *findNextNode(char w)
+  {
+    for (auto v : *nextNodeVector)
+      if (v->w == w)
+        return v;
+
+    return nullptr;
+  }
 };
 
 void WordFilterNormal(const std::string &input, const std::vector<std::string> &filteredWord, std::string &output)
@@ -34,7 +45,7 @@ void WordFilterNormal(const std::string &input, const std::vector<std::string> &
 
 void CreateFilteredWordTree(const std::vector<std::string> &filteredWord, node *root)
 {
-  if (root == nullptr || root->nextNodeVector == nullptr)
+  if (root == nullptr)
     return;
 
   for (auto w : filteredWord)
@@ -44,18 +55,9 @@ void CreateFilteredWordTree(const std::vector<std::string> &filteredWord, node *
 
     auto currentNode = root;
     int index = 0;
-    while (index < w.length() && currentNode->nextNodeVector != nullptr)
+    while (index < w.length())
     {
-      node *find = nullptr;
-      for (auto v : *currentNode->nextNodeVector)
-      {
-        if (v->w == w[index])
-        {
-          find = v;
-          break;
-        }
-      }
-
+      node *find = currentNode->findNextNode(w[index]);
       if (find != nullptr)
         currentNode = find;
       else
@@ -68,49 +70,92 @@ void CreateFilteredWordTree(const std::vector<std::string> &filteredWord, node *
 
       index++;
       if (index == w.length())
+      {
         currentNode->hasEnd = true;
+        currentNode->wordNum = (int)w.length();
+      }
     }
   }
 }
 
-void WordFilterDFA(const std::string &input, const node *root, std::string &output)
+void CreateACAutomation(node *root)
 {
-  output = input;
-  if (input.empty() || root == nullptr || root->nextNodeVector == nullptr || root->nextNodeVector->size() == 0)
+  if (root == nullptr)
     return;
 
-  for (int start = 0; start < input.length(); start++)
+  std::queue<node*> q;
+  for (auto v : *root->nextNodeVector)
   {
-    int end = start;
-    auto currentNode = root;
-    int index = start;
-    while (index < input.length() && currentNode->nextNodeVector != nullptr)
+    v->failNode = root;
+    q.push(v);
+  }
+
+  while (!q.empty())
+  {
+    auto currentNode = q.front();
+    q.pop();
+    for (auto v : *currentNode->nextNodeVector)
     {
-      node *find = nullptr;
-      for (auto v : *currentNode->nextNodeVector)
+      auto failNode = currentNode->failNode;
+      while (failNode != nullptr)
       {
-        if (v->w == input[index])
+        node *find = failNode->findNextNode(v->w);
+        if (find != nullptr)
         {
-          find = v;
+          v->failNode = find;
           break;
         }
+
+        failNode = failNode->failNode;
       }
 
-      if (find == nullptr)
-        break;
+      if (failNode == nullptr)
+        v->failNode = root;
 
-      currentNode = find;
-      index++;
-      if (find->hasEnd)
-        end = index;
+      q.push(v);
     }
-
-    for (int i = start; i < end; i++)
-      output[i] = '*';
   }
 }
 
-double getSeconds(std::chrono::time_point<std::chrono::system_clock> start, std::chrono::time_point<std::chrono::system_clock> end)
+void WordFilterDFA(const std::string &input, node *root, std::string &output)
+{
+  output = input;
+  if (input.empty() || root == nullptr || root->nextNodeVector->size() == 0)
+    return;
+
+  int index = 0;
+  int lastMarkIndex = -1;
+  auto currentNode = root;
+  while (index < input.length())
+  {
+    node *find = currentNode->findNextNode(input[index]);
+    while (find == nullptr && currentNode->failNode != nullptr)
+    {
+      currentNode = currentNode->failNode;
+      find = currentNode->findNextNode(input[index]);
+    }
+
+    if (find == nullptr)
+    {
+      currentNode = root;
+      index++;
+      continue;
+    }
+
+    currentNode = find;
+    if (find->hasEnd)
+    {
+      int start = lastMarkIndex + 1 > index - find->wordNum + 1 ? lastMarkIndex + 1 : index - find->wordNum + 1;
+      for (int i = start; i <= index; i++)
+        output[i] = '*';
+      lastMarkIndex = index;
+    }
+
+    index++;
+  }
+}
+
+double getSeconds(std::chrono::time_point<std::chrono::system_clock> &start, std::chrono::time_point<std::chrono::system_clock> &end)
 {
   auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
   return double(duration.count()) / 1000000;
@@ -161,6 +206,11 @@ int main()
   CreateFilteredWordTree(filteredWord, filteredWordTree);
   end = std::chrono::system_clock::now();
   std::cout << "Create Filtered Word Tree time= " << getSeconds(start, end) << "s" << std::endl;
+
+  start = std::chrono::system_clock::now();
+  CreateACAutomation(filteredWordTree);
+  end = std::chrono::system_clock::now();
+  std::cout << "Create AC Automation time= " << getSeconds(start, end) << "s" << std::endl;
 
   start = std::chrono::system_clock::now();
   std::string output2;
