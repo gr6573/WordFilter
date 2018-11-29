@@ -4,12 +4,16 @@
 #include <string>
 #include <chrono>
 #include <fstream>
+#include <string.h>
 
 struct node {
-  std::vector<node*> *nextNodeVector = new std::vector<node*>;
-  char w;
+  std::vector<node*> *nextNodeVector = nullptr;
+  char *w = new char[2];
   bool hasEnd = false;
-  node(char w) :w(w) {}
+  node(char s) {
+    w[0] = s;
+    w[1] = '\0';
+  }
 };
 
 void WordFilterNormal(const std::string &input, const std::vector<std::string> &filteredWord, std::string &output)
@@ -44,24 +48,28 @@ void CreateFilteredWordTree(const std::vector<std::string> &filteredWord, node *
 
     auto currentNode = root;
     int index = 0;
-    while (index < w.length() && currentNode->nextNodeVector != nullptr)
+    while (index < w.length())
     {
       node *find = nullptr;
-      for (auto v : *currentNode->nextNodeVector)
+      if (currentNode->nextNodeVector != nullptr)
       {
-        if (v->w == w[index])
+        for (auto v : *currentNode->nextNodeVector)
         {
-          find = v;
-          break;
+          if (v->w[0] == w[index])
+          {
+            find = v;
+            break;
+          }
         }
       }
+      else
+        currentNode->nextNodeVector = new std::vector<node*>();
 
       if (find != nullptr)
         currentNode = find;
       else
       {
         auto newNode = new node(w[index]);
-        newNode->nextNodeVector->reserve(3);
         currentNode->nextNodeVector->emplace_back(newNode);
         currentNode = newNode;
       }
@@ -69,6 +77,37 @@ void CreateFilteredWordTree(const std::vector<std::string> &filteredWord, node *
       index++;
       if (index == w.length())
         currentNode->hasEnd = true;
+    }
+  }
+}
+
+void CreateRadixTree(node *root)
+{
+  if (root == nullptr || root->nextNodeVector == nullptr)
+    return;
+
+  for (auto v : *root->nextNodeVector)
+  {
+    if (v->nextNodeVector == nullptr)
+      continue;
+
+    CreateRadixTree(v);
+
+    if (v->nextNodeVector->size() == 1 && !v->hasEnd)
+    {
+      auto nextNode = (*v->nextNodeVector)[0];
+      auto len = strlen(v->w) + strlen(nextNode->w) + 1;
+      auto newStr = new char[len];
+      strcpy(newStr, v->w);
+      strcat(newStr, nextNode->w);
+      delete[] v->w;
+      delete[] nextNode->w;
+      v->w = newStr;
+      v->hasEnd = nextNode->hasEnd;
+      v->nextNodeVector->shrink_to_fit();
+      delete v->nextNodeVector;
+      v->nextNodeVector = nextNode->nextNodeVector;
+      delete nextNode;
     }
   }
 }
@@ -87,9 +126,11 @@ void WordFilterDFA(const std::string &input, const node *root, std::string &outp
     while (index < input.length() && currentNode->nextNodeVector != nullptr)
     {
       node *find = nullptr;
+      int len = 0;
       for (auto v : *currentNode->nextNodeVector)
       {
-        if (v->w == input[index])
+        len = (int)strlen(v->w);
+        if (strncmp(v->w, input.c_str() + index, len) == 0)
         {
           find = v;
           break;
@@ -100,7 +141,7 @@ void WordFilterDFA(const std::string &input, const node *root, std::string &outp
         break;
 
       currentNode = find;
-      index++;
+      index += len;
       if (find->hasEnd)
         end = index;
     }
@@ -157,10 +198,16 @@ int main()
 
   start = std::chrono::system_clock::now();
   auto filteredWordTree = new node('\0');
+  filteredWordTree->nextNodeVector = new std::vector<node*>();
   filteredWordTree->nextNodeVector->reserve(256);
   CreateFilteredWordTree(filteredWord, filteredWordTree);
   end = std::chrono::system_clock::now();
   std::cout << "Create Filtered Word Tree time= " << getSeconds(start, end) << "s" << std::endl;
+
+  start = std::chrono::system_clock::now();
+  CreateRadixTree(filteredWordTree);
+  end = std::chrono::system_clock::now();
+  std::cout << "Create Radix Tree time= " << getSeconds(start, end) << "s" << std::endl;
 
   start = std::chrono::system_clock::now();
   std::string output2;
@@ -168,5 +215,8 @@ int main()
   end = std::chrono::system_clock::now();
   std::cout << "Word Filter DFA time= " << getSeconds(start, end) << "s" << std::endl;
   std::cout << "output: " << output2 << std::endl;
+
+  auto a = 0;
+  std::cin >> a;
   return 0;
 }
